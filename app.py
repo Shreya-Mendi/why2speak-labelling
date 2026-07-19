@@ -25,52 +25,128 @@ DATA = HERE / "results" / "kappa_labelling_sheet.csv"
 OUT_DIR = HERE / "kappa_results"
 OUT_DIR.mkdir(exist_ok=True)
 
-# label -> (short gloss, example cue). Order == the six radio options.
-LABELS: dict[str, tuple[str, str]] = {
-    "Factual Correction":    ("Fix a wrong claim someone made",
-                              "“that’s actually false / it was 1969, not 1970…”"),
-    "Concept Definition":    ("Define or clarify a term the group is misusing",
-                              "“by <em>latency</em> they really mean…”"),
-    "Data Provision":        ("Supply a number, statistic, or concrete fact the group lacks",
-                              "“the boiling point is 100 °C…”"),
-    "Source Identification": ("Point to, or demand, a source / citation / study",
-                              "“that comes from the 2019 EPA report…”"),
-    "Synthesis & Reframing": ("Step back, reconcile the sides, reframe a stuck discussion",
-                              "“you’re both right — the real question is…”"),
-    "None":                  ("No single clear type — vague, mixed, or off-taxonomy",
-                              "reasoning that doesn’t commit to one kind"),
+# Each label: emoji, one-line gloss, what it IS, an example, and the key "tell"
+# that separates it from the neighbour it's most confused with.
+LABELS: dict[str, dict[str, str]] = {
+    "Factual Correction": {
+        "emoji": "🍂",
+        "gloss": "fix something wrong",
+        "is": "Someone in the chat said something **incorrect**, and the reasoning "
+              "wants to set it straight.",
+        "eg": "“They said the moon landing was 1970 — it was actually 1969.”",
+        "tell": "There must be an **existing wrong claim** being fixed. "
+                "No mistake to correct? → it's not this.",
+    },
+    "Concept Definition": {
+        "emoji": "📖",
+        "gloss": "explain what a term means",
+        "is": "The reasoning wants to **define or clarify a word, term, or concept** "
+              "the group is unsure about or using loosely.",
+        "eg": "“By *latency* they really mean the delay before a response starts.”",
+        "tell": "It's about the **meaning of an idea/word** — not a number, and not "
+                "correcting a mistake.",
+    },
+    "Data Provision": {
+        "emoji": "🔢",
+        "gloss": "add a missing number / fact",
+        "is": "The group is **missing a specific fact, number, or statistic**, and "
+              "the reasoning wants to supply it. **Nobody was wrong** — there's just a gap.",
+        "eg": "“Water boils at 100 °C at sea level.” / “The population is about 8 million.”",
+        "tell": "Use this **only when filling a gap**. If it's fixing a mistake → "
+                "*Factual Correction*. If it's explaining a word → *Concept Definition*. "
+                "If it's naming where the fact comes from → *Source Identification*.",
+    },
+    "Source Identification": {
+        "emoji": "🔎",
+        "gloss": "point to / ask for a source",
+        "is": "The reasoning wants to **cite a source**, or **ask where a claim came "
+              "from** — a study, report, link, or reference.",
+        "eg": "“That figure is from the 2019 EPA report.” / “What's the source for that?”",
+        "tell": "It's about **evidence / where information comes from**, not the fact itself.",
+    },
+    "Synthesis & Reframing": {
+        "emoji": "🌉",
+        "gloss": "reconcile / reframe the discussion",
+        "is": "The reasoning **steps back** — reconciling opposing views, summarising, "
+              "or **reframing** a stuck or circular discussion.",
+        "eg": "“You're both right — the real question is whether…”",
+        "tell": "It **combines or redirects** the conversation rather than adding one "
+                "new fact.",
+    },
+    "None": {
+        "emoji": "🌫️",
+        "gloss": "none fit clearly",
+        "is": "**No single type fits** — the reasoning is vague, mixed across several "
+              "types, or about something outside these five.",
+        "eg": "rambling or off-topic reasoning that doesn't commit to one kind.",
+        "tell": "Pick this only after the other five genuinely don't fit.",
+    },
 }
 LABEL_KEYS = list(LABELS.keys())
 
 st.set_page_config(page_title="Why2Speak — reasoning labelling",
-                   page_icon="🗣️", layout="wide")
+                   page_icon="🌿", layout="centered")
 
 # --------------------------------------------------------------------------- #
-# Styling
+# Ghibli-soft theming, with a day / night toggle
 # --------------------------------------------------------------------------- #
-st.markdown(
-    """
-    <style>
-      .reason-card {
-        background: #f4f6fb;
-        border: 1px solid #dfe4f2;
-        border-radius: 14px; padding: 1.15rem 1.35rem; line-height: 1.6;
-        font-size: 1.03rem; color: #1c2431;
-        max-height: 44vh; overflow-y: auto;
-        box-shadow: 0 1px 3px rgba(28,36,49,.05);
-      }
-      .pill { display:inline-block; padding:.16rem .7rem; border-radius:999px;
-        background:#eef1fb; color:#3a4a7a; font-size:.8rem; font-weight:600;
-        margin-right:.45rem; }
-      .rubric td { padding:.3rem .5rem; vertical-align:top; font-size:.86rem; }
-      .rubric th { text-align:left; padding:.3rem .5rem; font-size:.82rem; opacity:.7; }
-      .muted { opacity:.6; font-size:.84rem; }
-      div[role="radiogroup"] label { margin-bottom:.25rem; font-size:1rem; }
-      div[role="radiogroup"] { gap:.15rem; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+PALETTES = {
+    "day": dict(   # soft meadow morning
+        bg="linear-gradient(180deg,#fcf9f0 0%,#eef5ef 55%,#e7f1f2 100%)",
+        sidebar="#f6f1e2", text="#43413a", muted="#8b8676",
+        card="#fffdf7", card_border="#e7dec7", accent="#6ba368",
+        pill_bg="#e6efe2", pill_text="#4e7a4b", heading="#3c5a3a",
+    ),
+    "night": dict(  # Totoro dusk
+        bg="linear-gradient(180deg,#1f2739 0%,#28304a 60%,#2d2c46 100%)",
+        sidebar="#262d40", text="#ece6d8", muted="#a7a292",
+        card="#2e3550", card_border="#3d4568", accent="#e0b866",
+        pill_bg="#3a4265", pill_text="#e6d3a0", heading="#e9dcb6",
+    ),
+}
+
+
+def inject_theme(mode: str) -> None:
+    p = PALETTES[mode]
+    st.markdown(
+        f"""
+        <style>
+          .stApp {{ background: {p['bg']}; }}
+          .stApp, [data-testid="stMarkdownContainer"], p, li, label, .stRadio {{
+            color: {p['text']}; }}
+          h1, h2, h3, h4 {{ color: {p['heading']} !important;
+            font-family: 'Georgia','Iowan Old Style',serif; letter-spacing:.2px; }}
+          section[data-testid="stSidebar"] > div {{ background: {p['sidebar']}; }}
+          .reason-card {{
+            background: {p['card']}; border: 1px solid {p['card_border']};
+            border-radius: 18px; padding: 1.2rem 1.4rem; line-height: 1.65;
+            font-size: 1.04rem; color: {p['text']};
+            max-height: 42vh; overflow-y: auto;
+            box-shadow: 0 4px 18px rgba(60,50,30,.08);
+          }}
+          .pill {{ display:inline-block; padding:.18rem .8rem; border-radius:999px;
+            background:{p['pill_bg']}; color:{p['pill_text']}; font-size:.8rem;
+            font-weight:600; margin-right:.45rem; }}
+          .card {{ background:{p['card']}; border:1px solid {p['card_border']};
+            border-radius:14px; padding:.7rem .9rem; margin-bottom:.5rem; }}
+          .card b {{ color:{p['heading']}; }}
+          .muted {{ color:{p['muted']}; font-size:.85rem; }}
+          .rubric td {{ padding:.3rem .5rem; vertical-align:top; font-size:.85rem; }}
+          .rubric th {{ text-align:left; padding:.3rem .5rem; font-size:.8rem;
+            color:{p['muted']}; }}
+          div[role="radiogroup"] label {{ margin-bottom:.35rem; font-size:1.02rem; }}
+          div[role="radiogroup"] {{ gap:.2rem; }}
+          .stButton button {{ border-radius:12px; }}
+          .stButton button[kind="primary"] {{ box-shadow:0 3px 10px rgba(107,163,104,.35); }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+if "theme" not in st.session_state:
+    st.session_state.theme = "day"
+inject_theme(st.session_state.theme)
 
 
 # --------------------------------------------------------------------------- #
@@ -167,17 +243,17 @@ if "labels" not in st.session_state:
 
 # ---- Welcome / name gate -------------------------------------------------- #
 if not st.session_state.name:
-    st.title("🗣️ Why2Speak — label the reasoning")
+    st.title("🌿 Why2Speak — label the reasoning")
     st.write(
-        "You'll read a model's **chain of thought** — the reasoning it wrote *before* "
-        "it decided to speak up in a group chat — and say **what kind of intervention "
-        "the reasoning claims to make**. About **120 rows, ~30–45 min**. Your progress "
-        "saves automatically and you can stop and resume anytime."
+        "You'll read a little passage of **reasoning** — the thinking written *before* "
+        "deciding whether to speak up in a group chat — and say **what kind of point "
+        "it's trying to make**. About **120 short passages, ~30–45 min**. Your progress "
+        "saves automatically, so you can stop and come back anytime. 🍵"
     )
     with st.form("who"):
-        name = st.text_input("First name or nickname (used to save your labels)",
+        name = st.text_input("First name or nickname (just to save your progress)",
                              max_chars=40, placeholder="e.g. sam")
-        go = st.form_submit_button("Start labelling →", type="primary")
+        go = st.form_submit_button("Start →", type="primary")
     if go and name.strip():
         st.session_state.name = name.strip()
         st.session_state.labels = load_progress(name.strip())
@@ -197,23 +273,30 @@ labels = st.session_state.labels
 # Sidebar: rubric (always visible) + progress
 # --------------------------------------------------------------------------- #
 with st.sidebar:
-    st.markdown(f"**Labeller:** `{name}`")
-    done = len(labels)
-    st.progress(done / N, text=f"{done} / {N} labelled")
+    st.markdown(f"🧑‍🌾 **{name}**")
+    night = st.toggle("🌙 Night mode", value=st.session_state.theme == "night")
+    new_theme = "night" if night else "day"
+    if new_theme != st.session_state.theme:
+        st.session_state.theme = new_theme
+        st.rerun()
 
-    st.markdown("### The six labels")
-    rubric = "<table class='rubric'><tr><th>label</th><th>the reasoning wants to…</th></tr>"
-    for k, (gloss, cue) in LABELS.items():
-        rubric += (f"<tr><td><b>{k}</b></td><td>{gloss}<br>"
-                   f"<span class='muted'><i>{cue}</i></span></td></tr>")
-    rubric += "</table>"
-    st.markdown(rubric, unsafe_allow_html=True)
+    done = len(labels)
+    st.progress(done / N, text=f"{done} / {N} done")
+
+    st.markdown("### 🌸 The six labels")
+    for k, d in LABELS.items():
+        st.markdown(
+            f"<div class='card'><b>{d['emoji']} {k}</b><br>"
+            f"<span class='muted'>{d['gloss']}</span></div>",
+            unsafe_allow_html=True,
+        )
+    st.caption("Full guide with examples is on the main page 👉")
 
     st.markdown("### How to choose")
     st.markdown(
-        "- Judge only what the text **claims**, not whether it's correct.\n"
-        "- Pick **one** label per row.\n"
-        "- When torn between two, choose the one the reasoning **leads with**."
+        "- Judge only what the passage **claims**, not whether it's correct.\n"
+        "- Pick **one** label per passage.\n"
+        "- When torn between two, choose the one it **leads with**."
     )
     st.divider()
     if st.button("↪︎ Go to my next unlabelled row", use_container_width=True):
@@ -247,19 +330,43 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown("#### The reasoning")
+st.markdown("#### 🍃 The reasoning")
 st.markdown(f"<div class='reason-card'>{row['reasoning_text']}</div>",
             unsafe_allow_html=True)
 st.caption("Some passages cut off mid-thought — that's expected; just judge what's shown.")
 
-st.markdown("#### What kind of intervention does this reasoning claim to make?")
+st.markdown("#### What kind of point is this reasoning trying to make?")
 choice = st.radio(
     "label",
     LABEL_KEYS,
     index=LABEL_KEYS.index(current) if current in LABEL_KEYS else None,
-    format_func=lambda k: f"{k} — {LABELS[k][0]}",
+    format_func=lambda k: f"{LABELS[k]['emoji']}  {k} — {LABELS[k]['gloss']}",
     label_visibility="collapsed",
 )
+
+with st.expander("📖 Label guide — examples & how to tell them apart", expanded=False):
+    st.markdown(
+        "**Quick test when you're stuck** — go down this list and stop at the first *yes*:\n"
+        "1. Is it **fixing a mistake** someone made? → 🍂 **Factual Correction**\n"
+        "2. Is it **explaining what a word/idea means**? → 📖 **Concept Definition**\n"
+        "3. Is it **adding a missing fact or number** (nobody was wrong)? → 🔢 **Data Provision**\n"
+        "4. Is it about **where a fact comes from** (a source)? → 🔎 **Source Identification**\n"
+        "5. Is it **tying the discussion together / reframing** it? → 🌉 **Synthesis & Reframing**\n"
+        "6. None of these fit cleanly? → 🌫️ **None**"
+    )
+    st.info(
+        "🔢 **Data Provision is the most over-used label.** Only pick it when the "
+        "reasoning simply *supplies a missing fact* and **no one made a mistake**. "
+        "If it's fixing an error → *Factual Correction*. If it's explaining a term → "
+        "*Concept Definition*. If it's naming a source → *Source Identification*."
+    )
+    for k, d in LABELS.items():
+        st.markdown(
+            f"<div class='card'><b>{d['emoji']} {k}</b><br>{d['is']}<br>"
+            f"<span class='muted'>e.g. {d['eg']}</span><br>"
+            f"<span class='muted'>↳ {d['tell']}</span></div>",
+            unsafe_allow_html=True,
+        )
 
 nav = st.columns([1, 1, 4, 2])
 with nav[0]:
