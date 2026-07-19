@@ -114,19 +114,29 @@ st.set_page_config(page_title="Why2Speak — reasoning labelling",
 # --------------------------------------------------------------------------- #
 # Ghibli-soft theming, with a day / night toggle
 # --------------------------------------------------------------------------- #
+# Palette + type from portfoliobyshruti.com: off-white, near-black ink, coral
+# accent, warm neutrals; Satoshi / Clash Display / Caveat.
 PALETTES = {
-    "day": dict(   # soft meadow morning
-        bg="linear-gradient(180deg,#fcf9f0 0%,#eef5ef 55%,#e7f1f2 100%)",
-        sidebar="#f6f1e2", text="#43413a", muted="#8b8676",
-        card="#fffdf7", card_border="#e7dec7", accent="#6ba368",
-        pill_bg="#e6efe2", pill_text="#4e7a4b", heading="#3c5a3a",
+    "day": dict(
+        bg="#fafafa", sidebar="#f0ede8", text="#1a1a1a", muted="#8a8278",
+        card="#ffffff", card_border="#ece7de", accent="#f37b75",
+        pill_bg="#fff2f0", pill_text="#d8635c", heading="#1a1a1a",
     ),
-    "night": dict(  # Totoro dusk
-        bg="linear-gradient(180deg,#1f2739 0%,#28304a 60%,#2d2c46 100%)",
-        sidebar="#262d40", text="#ece6d8", muted="#a7a292",
-        card="#2e3550", card_border="#3d4568", accent="#e0b866",
-        pill_bg="#3a4265", pill_text="#e6d3a0", heading="#e9dcb6",
+    "night": dict(
+        bg="#1c1a18", sidebar="#232019", text="#f2ede4", muted="#a79f92",
+        card="#26221d", card_border="#37312a", accent="#f37b75",
+        pill_bg="#3a2b28", pill_text="#f0a49e", heading="#fff8ee",
     ),
+}
+
+# the site's playful "sticker" palette — one hue per label (also a visual aid)
+LABEL_COLORS = {
+    "Factual Correction":    "#f37b75",  # coral
+    "Concept Definition":    "#6cc2ea",  # sky
+    "Data Provision":        "#f8c614",  # yellow
+    "Source Identification": "#a0d4a6",  # sage
+    "Synthesis & Reframing": "#b79ce0",  # lilac
+    "None":                  "#c3bbae",  # warm grey
 }
 
 
@@ -135,13 +145,21 @@ def inject_theme(mode: str) -> None:
     st.markdown(
         f"""
         <style>
+          @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=clash-display@500,600&display=swap');
+          @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap');
+          html, body, .stApp, [class^="st-"], [class*=" st-"],
+          button, input, textarea, select, [data-testid="stMarkdownContainer"] {{
+            font-family: 'Satoshi','Helvetica Neue',sans-serif !important; }}
+          h1, h2, h3, h4 {{ font-family:'Clash Display','Satoshi',sans-serif !important;
+            color: {p['heading']} !important; letter-spacing:-.01em; }}
           .stApp {{ background: {p['bg']}; }}
           .stApp, [data-testid="stMarkdownContainer"], p, li, label, .stRadio {{
             color: {p['text']}; }}
-          h1, h2, h3, h4 {{ color: {p['heading']} !important; }}
           section[data-testid="stSidebar"] > div {{ background: {p['sidebar']}; }}
-          .guide-title {{ font-weight:700; font-size:.98rem; color:{p['heading']}; }}
+          .guide-title {{ font-family:'Caveat',cursive; font-weight:600;
+            font-size:1.5rem; color:{p['accent']}; }}
           details.lbl {{ background:{p['card']}; border:1px solid {p['card_border']};
+            border-left:4px solid var(--lc,{p['card_border']});
             border-radius:12px; padding:.55rem .8rem; margin-bottom:.5rem; }}
           details.lbl summary {{ cursor:pointer; font-weight:600; list-style:none;
             color:{p['heading']}; }}
@@ -168,8 +186,15 @@ def inject_theme(mode: str) -> None:
             color:{p['muted']}; }}
           div[role="radiogroup"] label {{ margin-bottom:.35rem; font-size:1.02rem; }}
           div[role="radiogroup"] {{ gap:.2rem; }}
-          .stButton button {{ border-radius:12px; }}
-          .stButton button[kind="primary"] {{ box-shadow:0 3px 10px rgba(107,163,104,.35); }}
+          .stButton button, .stDownloadButton button {{ border-radius:12px;
+            background:{p['card']} !important; color:{p['text']} !important;
+            border:1px solid {p['card_border']} !important; font-weight:600; }}
+          .stButton button:hover, .stDownloadButton button:hover {{
+            border-color:{p['accent']} !important; color:{p['accent']} !important; }}
+          .stButton button[kind="primary"] {{ background:{p['accent']} !important;
+            color:#fff !important; border:none !important;
+            box-shadow:0 3px 12px rgba(243,123,117,.4); }}
+          .stButton button[kind="primary"]:hover {{ color:#fff !important; }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -362,8 +387,11 @@ with guide_col:
                 unsafe_allow_html=True)
     for k, d in LABELS.items():
         egs = "".join(f"<li>{e}</li>" for e in d["egs"])
+        lc = LABEL_COLORS[k]
         st.markdown(
-            f"<details class='lbl'><summary>{d['emoji']} {k} — {d['gloss']}</summary>"
+            f"<details class='lbl' style='--lc:{lc}'>"
+            f"<summary>{d['emoji']} {k} <span style='color:{lc};font-weight:600'>—"
+            f" {d['gloss']}</span></summary>"
             f"<div class='muted'>{rich(d['is'])}</div>"
             f"<div style='margin-top:.35rem;font-size:.82rem;opacity:.75'>Examples:</div>"
             f"<ul>{egs}</ul>"
