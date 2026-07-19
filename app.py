@@ -150,28 +150,37 @@ def inject_theme(mode: str) -> None:
           html, body, .stApp, [class^="st-"], [class*=" st-"],
           button, input, textarea, select, [data-testid="stMarkdownContainer"] {{
             font-family: 'Satoshi','Helvetica Neue',sans-serif !important; }}
+          html {{ font-size: 17px; }}
+          [data-testid="stIconMaterial"],
+          span[class*="material-symbols"] {{
+            font-family: 'Material Symbols Rounded' !important; }}
+          [data-testid="stMarkdownContainer"] p,
+          [data-testid="stMarkdownContainer"] li {{ line-height: 1.65; }}
           h1, h2, h3, h4 {{ font-family:'Clash Display','Satoshi',sans-serif !important;
-            color: {p['heading']} !important; letter-spacing:-.01em; }}
+            color: {p['heading']} !important; letter-spacing:.01em;
+            margin-top:.6rem !important; }}
           .stApp {{ background: {p['bg']}; }}
           .stApp, [data-testid="stMarkdownContainer"], p, li, label, .stRadio {{
             color: {p['text']}; }}
+          .block-container {{ padding-top: 2.2rem; max-width: 1250px; }}
           section[data-testid="stSidebar"] > div {{ background: {p['sidebar']}; }}
           .guide-title {{ font-family:'Caveat',cursive; font-weight:600;
             font-size:1.5rem; color:{p['accent']}; }}
           details.lbl {{ background:{p['card']}; border:1px solid {p['card_border']};
             border-left:4px solid var(--lc,{p['card_border']});
-            border-radius:12px; padding:.55rem .8rem; margin-bottom:.5rem; }}
+            border-radius:12px; padding:.75rem 1rem; margin-bottom:.65rem; }}
           details.lbl summary {{ cursor:pointer; font-weight:600; list-style:none;
-            color:{p['heading']}; }}
+            color:{p['heading']}; line-height:1.5; }}
           details.lbl summary::-webkit-details-marker {{ display:none; }}
-          details.lbl[open] summary {{ margin-bottom:.4rem; }}
-          details.lbl ul {{ margin:.3rem 0 .2rem 1rem; padding:0; }}
-          details.lbl li {{ margin:.15rem 0; font-size:.9rem; }}
+          details.lbl[open] summary {{ margin-bottom:.55rem; }}
+          details.lbl ul {{ margin:.4rem 0 .35rem 1.1rem; padding:0; }}
+          details.lbl li {{ margin:.3rem 0; font-size:.92rem; line-height:1.55; }}
+          details.lbl .muted {{ line-height:1.55; }}
           .reason-card {{
             background: {p['card']}; border: 1px solid {p['card_border']};
-            border-radius: 18px; padding: 1.2rem 1.4rem; line-height: 1.65;
-            font-size: 1.04rem; color: {p['text']};
-            max-height: 42vh; overflow-y: auto;
+            border-radius: 18px; padding: 1.4rem 1.6rem; line-height: 1.8;
+            font-size: 1.06rem; color: {p['text']};
+            max-height: 46vh; overflow-y: auto;
             box-shadow: 0 4px 18px rgba(60,50,30,.08);
           }}
           .pill {{ display:inline-block; padding:.18rem .8rem; border-radius:999px;
@@ -180,12 +189,13 @@ def inject_theme(mode: str) -> None:
           .card {{ background:{p['card']}; border:1px solid {p['card_border']};
             border-radius:14px; padding:.7rem .9rem; margin-bottom:.5rem; }}
           .card b {{ color:{p['heading']}; }}
-          .muted {{ color:{p['muted']}; font-size:.85rem; }}
+          .muted {{ color:{p['muted']}; font-size:.88rem; }}
           .rubric td {{ padding:.3rem .5rem; vertical-align:top; font-size:.85rem; }}
           .rubric th {{ text-align:left; padding:.3rem .5rem; font-size:.8rem;
             color:{p['muted']}; }}
-          div[role="radiogroup"] label {{ margin-bottom:.35rem; font-size:1.02rem; }}
-          div[role="radiogroup"] {{ gap:.2rem; }}
+          div[role="radiogroup"] label {{ margin-bottom:.55rem; font-size:1.03rem;
+            line-height:1.5; }}
+          div[role="radiogroup"] {{ gap:.35rem; }}
           .stButton button, .stDownloadButton button {{ border-radius:12px;
             background:{p['card']} !important; color:{p['text']} !important;
             border:1px solid {p['card_border']} !important; font-weight:600; }}
