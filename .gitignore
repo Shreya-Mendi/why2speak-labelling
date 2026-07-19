@@ -1,0 +1,5 @@
+kappa_results/*.csv
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.venv/

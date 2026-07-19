@@ -1,0 +1,6 @@
+streamlit>=1.36
+pandas>=2.0
+scikit-learn>=1.3
+# --- optional: central Google-Sheets save (only needed if you set [gsheets] secrets) ---
+gspread>=6.0
+google-auth>=2.0
