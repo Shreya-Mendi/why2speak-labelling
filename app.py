@@ -52,17 +52,21 @@ st.markdown(
     """
     <style>
       .reason-card {
-        background: rgba(130,150,255,.07);
-        border: 1px solid rgba(130,150,255,.25);
-        border-radius: 12px; padding: 1.1rem 1.3rem; line-height: 1.55;
-        font-size: 1.02rem; max-height: 46vh; overflow-y: auto;
+        background: #f4f6fb;
+        border: 1px solid #dfe4f2;
+        border-radius: 14px; padding: 1.15rem 1.35rem; line-height: 1.6;
+        font-size: 1.03rem; color: #1c2431;
+        max-height: 44vh; overflow-y: auto;
+        box-shadow: 0 1px 3px rgba(28,36,49,.05);
       }
-      .pill { display:inline-block; padding:.12rem .6rem; border-radius:999px;
-        background:rgba(130,150,255,.15); font-size:.8rem; margin-right:.4rem; }
-      .rubric td { padding:.28rem .5rem; vertical-align:top; font-size:.86rem; }
-      .rubric th { text-align:left; padding:.28rem .5rem; font-size:.82rem; opacity:.75; }
-      .muted { opacity:.65; font-size:.85rem; }
-      div[role="radiogroup"] label { margin-bottom:.15rem; }
+      .pill { display:inline-block; padding:.16rem .7rem; border-radius:999px;
+        background:#eef1fb; color:#3a4a7a; font-size:.8rem; font-weight:600;
+        margin-right:.45rem; }
+      .rubric td { padding:.3rem .5rem; vertical-align:top; font-size:.86rem; }
+      .rubric th { text-align:left; padding:.3rem .5rem; font-size:.82rem; opacity:.7; }
+      .muted { opacity:.6; font-size:.84rem; }
+      div[role="radiogroup"] label { margin-bottom:.25rem; font-size:1rem; }
+      div[role="radiogroup"] { gap:.15rem; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -182,9 +186,8 @@ if not st.session_state.name:
         first = next((k for k in range(N) if items.iloc[k]["id"] not in done), N - 1)
         st.session_state.idx = first
         st.rerun()
-    st.info("Tip: everyone should use the **same** app so we can compare labels. "
-            "Please don't discuss individual rows with the other labellers — the "
-            "whole point is independent judgement.")
+    st.info("Please answer on your own — don't discuss individual rows with anyone "
+            "else. Independent judgement is what makes this useful.")
     st.stop()
 
 name = st.session_state.name
@@ -206,31 +209,28 @@ with st.sidebar:
     rubric += "</table>"
     st.markdown(rubric, unsafe_allow_html=True)
 
-    st.markdown("### Rules")
+    st.markdown("### How to choose")
     st.markdown(
         "- Judge only what the text **claims**, not whether it's correct.\n"
-        "- **One** label per row.\n"
-        "- When torn between two, pick the one the reasoning **leads with**.\n"
-        "- Blind: don't look at the model-judge's answers until everyone's done."
+        "- Pick **one** label per row.\n"
+        "- When torn between two, choose the one the reasoning **leads with**."
     )
     st.divider()
-    if st.button("↪︎ Jump to next unlabelled"):
+    if st.button("↪︎ Go to my next unlabelled row", use_container_width=True):
         nxt = next((k for k in range(N) if items.iloc[k]["id"] not in labels), None)
         if nxt is None:
-            st.toast("All rows labelled 🎉")
+            st.toast("All rows done 🎉")
         else:
             st.session_state.idx = nxt
             st.rerun()
     st.download_button(
-        "⬇︎ Download my labels (backup)",
+        "⬇︎ Download my answers",
         data=(out_path(name).read_bytes() if out_path(name).exists() else b"id,your_label\n"),
-        file_name=f"labels_{slug(name)}.csv",
+        file_name=f"answers_{slug(name)}.csv",
         mime="text/csv",
-        help="Send this file back if the app is hosted (its disk may reset).",
+        use_container_width=True,
+        help="When you finish, download this and send it back.",
     )
-    if st.button("Switch labeller"):
-        st.session_state.name = ""
-        st.rerun()
 
 # --------------------------------------------------------------------------- #
 # Main: one item
@@ -240,25 +240,17 @@ row = items.iloc[idx]
 item_id = row["id"]
 current = labels.get(item_id)
 
-top = st.columns([3, 1])
-with top[0]:
-    st.markdown(
-        f"<span class='pill'>row {idx + 1} of {N}</span>"
-        f"<span class='pill'>id {item_id}</span>"
-        + ("<span class='pill'>✓ labelled</span>" if current else
-           "<span class='pill'>· unlabelled</span>"),
-        unsafe_allow_html=True,
-    )
-with top[1]:
-    jump = st.number_input("go to row", 1, N, idx + 1, label_visibility="collapsed")
-    if jump - 1 != idx:
-        st.session_state.idx = int(jump - 1)
-        st.rerun()
+st.markdown(
+    f"<span class='pill'>row {idx + 1} of {N}</span>"
+    + ("<span class='pill'>✓ answered</span>" if current else
+       "<span class='pill'>· not yet answered</span>"),
+    unsafe_allow_html=True,
+)
 
-st.markdown("#### The model's reasoning")
+st.markdown("#### The reasoning")
 st.markdown(f"<div class='reason-card'>{row['reasoning_text']}</div>",
             unsafe_allow_html=True)
-st.caption("Some traces are cut off mid-thought — that's expected; judge what's shown.")
+st.caption("Some passages cut off mid-thought — that's expected; just judge what's shown.")
 
 st.markdown("#### What kind of intervention does this reasoning claim to make?")
 choice = st.radio(
@@ -288,6 +280,6 @@ with nav[3]:
 # completion banner
 if len(labels) >= N:
     st.success(
-        f"🎉 All {N} rows labelled. Click **Download my labels** in the sidebar and "
-        f"send the file back — then we compute Cohen's κ against the model judge."
+        f"🎉 All {N} rows done — thank you so much! Click **⬇︎ Download my answers** "
+        f"in the sidebar and send the file back. That's everything."
     )
