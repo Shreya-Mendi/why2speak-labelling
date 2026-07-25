@@ -140,6 +140,280 @@ LABEL_COLORS = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# The growing scene — a tiny diorama in the corner that gains one element every
+# five labels. Ten stages, then it quietly starts over with a fresh rug.
+# Pure inline SVG (+ SMIL <animate>): no JS, no assets, no network.
+# --------------------------------------------------------------------------- #
+SCENE_EVERY = 5          # labels per stage
+SCENE_STAGES = 10        # stages before the cycle repeats
+
+SCENE_TOASTS = {
+    1:  "🪞 a rug unrolls",
+    2:  "🪵 a little table arrives",
+    3:  "🏺 someone sets down a vase",
+    4:  "🌱 buds, tucked in",
+    5:  "💧 a drink for the flowers",
+    6:  "🌸 they bloom!",
+    7:  "🐈 a cat wanders in",
+    8:  "🐾 the cat gets playful",
+    9:  "😿 uh oh — the vase!",
+    10: "🐈‍⬛ the cat bolts",
+}
+
+# unit vectors for five petals, starting at 12 o'clock
+_PETALS = ((0.0, -1.0), (0.951, -0.309), (0.588, 0.809),
+           (-0.588, 0.809), (-0.951, -0.309))
+_FUR, _PAW, _INK = "#c3bbae", "#dad4cb", "#4a4038"
+_WOOD, _WOOD_DK = "#d3b28c", "#bd9866"
+_STEM = "#7fbf87"
+
+
+def scene_stage(done: int) -> int:
+    """0 = nothing yet, else 1..10 cycling. k = done // 5; ((k - 1) % 10) + 1."""
+    k = done // SCENE_EVERY
+    return 0 if k == 0 else ((k - 1) % SCENE_STAGES) + 1
+
+
+def _flower(cx: float, cy: float, col: str, r: float = 5.6) -> str:
+    """An open bloom: five petals around a yellow centre."""
+    petals = "".join(
+        f"<circle cx='{cx + dx * r * .62:.1f}' cy='{cy + dy * r * .62:.1f}'"
+        f" r='{r * .46:.1f}' fill='{col}'/>" for dx, dy in _PETALS
+    )
+    return petals + f"<circle cx='{cx:.1f}' cy='{cy:.1f}' r='{r * .3:.1f}' fill='#f8c614'/>"
+
+
+def _bud(cx: float, cy: float) -> str:
+    """A closed bud (teardrop) sitting on a stem tip."""
+    return (f"<path d='M{cx:.1f} {cy:.1f} C{cx - 3.4:.1f} {cy - .6:.1f}"
+            f" {cx - 3.8:.1f} {cy - 6.6:.1f} {cx:.1f} {cy - 10:.1f}"
+            f" C{cx + 3.8:.1f} {cy - 6.6:.1f} {cx + 3.4:.1f} {cy - .6:.1f}"
+            f" {cx:.1f} {cy:.1f} Z' fill='#a0d4a6'/>"
+            f"<path d='M{cx:.1f} {cy - 9.2:.1f} L{cx:.1f} {cy - 1.4:.1f}'"
+            f" stroke='{_STEM}' stroke-width='.8' opacity='.65'/>")
+
+
+def _watering_can(transform: str, pouring: bool) -> str:
+    """The can, drawn once in its own coords and placed by `transform`."""
+    tilt = "<g transform='rotate(-20 119 42)'>" if pouring else "<g>"
+    return (
+        f"<g {transform}>{tilt}"
+        f"<path d='M116 32 C116 25 130 25 130 32' stroke='#8bc492' stroke-width='2.6'"
+        f" fill='none' stroke-linecap='round'/>"
+        f"<path d='M110 41 L100 47 L102.6 51.4 L112 46 Z' fill='#8bc492'/>"
+        f"<ellipse cx='100.5' cy='48.6' rx='3.1' ry='2.3' fill='#a0d4a6'"
+        f" transform='rotate(-32 100.5 48.6)'/>"
+        f"<path d='M111 33 h17 a3 3 0 0 1 3 3 v11 a5.5 5.5 0 0 1 -5.5 5.5"
+        f" h-12 a5.5 5.5 0 0 1 -5.5 -5.5 v-11 a3 3 0 0 1 3 -3 Z' fill='#a0d4a6'/>"
+        f"<rect x='111' y='36.6' width='20' height='2.4' fill='#8bc492' opacity='.75'/>"
+        f"</g></g>"
+    )
+
+
+def _droplets() -> str:
+    """Three staggered droplets falling from the spout onto the buds."""
+    out = ["<g fill='#6cc2ea'>"]
+    for i, (x0, dur) in enumerate(((97.5, 1.15), (101.0, 1.3), (99.0, 1.05))):
+        beg = f"{i * .38:.2f}s"
+        out.append(
+            f"<ellipse cx='{x0}' cy='55' rx='1.7' ry='2.5'>"
+            f"<animate attributeName='cy' values='55;74' dur='{dur}s'"
+            f" begin='{beg}' repeatCount='indefinite'/>"
+            f"<animate attributeName='cx' values='{x0};{x0 - 3.5}' dur='{dur}s'"
+            f" begin='{beg}' repeatCount='indefinite'/>"
+            f"<animate attributeName='opacity' values='0;1;1;0' keyTimes='0;.18;.72;1'"
+            f" dur='{dur}s' begin='{beg}' repeatCount='indefinite'/></ellipse>"
+        )
+    out.append("</g>")
+    return "".join(out)
+
+
+def _cat(anxious: bool = False, playing: bool = False) -> str:
+    """A sitting cat, facing the table. `anxious` = wide eyes + ears back."""
+    parts = []
+
+    # tail (flicks when playing)
+    tail = (f"<path d='M144 125.5 C154.5 127.5 159 118 153 111.5' stroke='{_FUR}'"
+            f" stroke-width='4.6' fill='none' stroke-linecap='round'/>")
+    if playing:
+        parts.append(
+            f"<g>{tail}<animateTransform attributeName='transform' type='rotate'"
+            f" values='0 145 125;11 145 125;-8 145 125;0 145 125' dur='1.9s'"
+            f" repeatCount='indefinite'/></g>")
+    else:
+        parts.append(tail)
+
+    # ears — flattened back when anxious
+    ear_l = f"<path d='M129.6 96 L127.2 87.2 L136 92.6 Z' fill='{_FUR}'/>"
+    ear_r = f"<path d='M143.4 96 L145.8 87.2 L137 92.6 Z' fill='{_FUR}'/>"
+    in_l = "<path d='M130.6 94.6 L129.6 89.9 L134.4 92.8 Z' fill='#f37b75' opacity='.45'/>"
+    in_r = "<path d='M142.4 94.6 L143.4 89.9 L138.6 92.8 Z' fill='#f37b75' opacity='.45'/>"
+    if anxious:
+        parts.append(f"<g transform='rotate(52 130.5 95.5)'>{ear_l}{in_l}</g>"
+                     f"<g transform='rotate(-52 142.5 95.5)'>{ear_r}{in_r}</g>")
+    else:
+        parts.append(ear_l + in_l + ear_r + in_r)
+
+    # body + head
+    parts.append(
+        f"<path d='M133 127 C125.2 127 124.8 115.6 129.4 108.6 C132.6 104 141 104"
+        f" 144.2 108.6 C148.8 115.6 148.4 127 140.6 127 Z' fill='{_FUR}'/>"
+        f"<circle cx='136.5' cy='102' r='8.8' fill='{_FUR}'/>")
+
+    # front paws (one lifts when playing)
+    parts.append(f"<ellipse cx='139.6' cy='125.4' rx='3.6' ry='2.3' fill='{_PAW}'/>")
+    if playing:
+        parts.append(
+            f"<g><animateTransform attributeName='transform' type='rotate'"
+            f" values='0 130.5 123;-26 130.5 123;-5 130.5 123;0 130.5 123'"
+            f" keyTimes='0;.35;.7;1' dur='1.5s' repeatCount='indefinite'/>"
+            f"<path d='M130.5 123.5 C126.6 119.6 123 115 120.8 110.6' stroke='{_FUR}'"
+            f" stroke-width='4.4' fill='none' stroke-linecap='round'/>"
+            f"<ellipse cx='119.8' cy='108.8' rx='3.4' ry='2.6' fill='{_PAW}'"
+            f" transform='rotate(-34 119.8 108.8)'/></g>")
+    else:
+        parts.append(f"<ellipse cx='132.2' cy='125.4' rx='3.6' ry='2.3' fill='{_PAW}'/>")
+
+    # face
+    parts.append(
+        f"<path d='M128.4 103.4 L121.8 101.8 M128.4 105.6 L122.2 106.8' stroke='{_INK}'"
+        f" stroke-width='.7' opacity='.5' stroke-linecap='round' fill='none'/>"
+        f"<path d='M144.6 103.4 L151.2 101.8 M144.6 105.6 L150.8 106.8' stroke='{_INK}'"
+        f" stroke-width='.7' opacity='.5' stroke-linecap='round' fill='none'/>")
+    if anxious:
+        parts.append(
+            f"<circle cx='132.7' cy='101.2' r='3.2' fill='#fffaf2'/>"
+            f"<circle cx='140.3' cy='101.2' r='3.2' fill='#fffaf2'/>"
+            f"<circle cx='132.9' cy='100.6' r='1.5' fill='{_INK}'/>"
+            f"<circle cx='140.5' cy='100.6' r='1.5' fill='{_INK}'/>"
+            f"<path d='M134.3 107.2 q1.1 1.3 2.2 0 q1.1 -1.3 2.2 0' stroke='{_INK}'"
+            f" stroke-width='.9' fill='none' stroke-linecap='round'/>"
+            f"<path d='M149.5 90.5 c-2.6 3.2 -2.6 5.8 0 5.8 c2.6 0 2.6 -2.6 0 -5.8 Z'"
+            f" fill='#6cc2ea' opacity='.9'>"
+            f"<animate attributeName='opacity' values='.25;.9;.25' dur='1.4s'"
+            f" repeatCount='indefinite'/></path>")
+    else:
+        parts.append(
+            f"<circle cx='132.8' cy='101.4' r='1.4' fill='{_INK}'/>"
+            f"<circle cx='140.2' cy='101.4' r='1.4' fill='{_INK}'/>"
+            f"<path d='M134.9 106.4 q1.6 1.7 3.2 0' stroke='{_INK}' stroke-width='.9'"
+            f" fill='none' stroke-linecap='round'/>")
+    parts.append(f"<path d='M136.5 105.2 l-1.7 -1.8 h3.4 Z' fill='#f37b75'/>")
+    return "".join(parts)
+
+
+def scene_svg(done: int, p: dict) -> str:
+    """Inline SVG diorama for the current progress. Built cumulatively."""
+    stage = scene_stage(done)
+    s: list[str] = []
+
+    if stage >= 1:  # ---- the rug ----------------------------------------- #
+        s.append(
+            f"<ellipse cx='85' cy='131' rx='71' ry='15' fill='{p['card_border']}'"
+            f" opacity='.5'/>"
+            f"<ellipse cx='85' cy='128' rx='62' ry='14' fill='#f37b75'/>"
+            f"<ellipse cx='85' cy='128' rx='50' ry='10.8' fill='none' stroke='#f8c614'"
+            f" stroke-width='2.2' opacity='.85'/>"
+            f"<ellipse cx='85' cy='128' rx='38' ry='7.6' fill='none' stroke='#fff8ee'"
+            f" stroke-width='1.5' opacity='.5'/>"
+            f"<ellipse cx='85' cy='128' rx='26' ry='4.8' fill='#b79ce0' opacity='.55'/>")
+
+    if stage >= 2:  # ---- the table --------------------------------------- #
+        s.append(
+            f"<path d='M60 103 L56.5 124' stroke='{_WOOD_DK}' stroke-width='4.2'"
+            f" stroke-linecap='round'/>"
+            f"<path d='M102 103 L105.5 124' stroke='{_WOOD_DK}' stroke-width='4.2'"
+            f" stroke-linecap='round'/>"
+            f"<path d='M59 114.5 L103 114.5' stroke='{_WOOD_DK}' stroke-width='2.4'"
+            f" stroke-linecap='round' opacity='.85'/>"
+            f"<rect x='53' y='96.5' width='56' height='6.8' rx='3.4' fill='{_WOOD}'/>"
+            f"<rect x='53' y='101' width='56' height='2.3' rx='1.1' fill='{_WOOD_DK}'"
+            f" opacity='.55'/>")
+
+    fallen = stage >= 9
+
+    if stage >= 3 and not fallen:  # ---- the vase (standing) --------------- #
+        s.append(
+            f"<path d='M77.4 78 C76 85 71.4 86 71.4 90.6 C71.4 95 76 96.8 81 96.8"
+            f" C86 96.8 90.6 95 90.6 90.6 C90.6 86 86 85 84.6 78 Z' fill='#6cc2ea'/>"
+            f"<ellipse cx='81' cy='78' rx='3.7' ry='1.5' fill='#4fb0dd'/>"
+            f"<ellipse cx='76.4' cy='89.5' rx='1.9' ry='3.4' fill='#fff' opacity='.32'/>")
+
+    if stage >= 4 and not fallen:  # ---- flowers in the vase ---------------- #
+        stems = (
+            f"<path d='M81 79 C79.4 69 74 63 70 55.6' stroke='{_STEM}' stroke-width='1.9'"
+            f" fill='none' stroke-linecap='round'/>"
+            f"<path d='M81 79 C81.6 69 81.4 60 81 51.6' stroke='{_STEM}'"
+            f" stroke-width='1.9' fill='none' stroke-linecap='round'/>"
+            f"<path d='M81 79 C82.8 69 88.4 63 92.6 56.4' stroke='{_STEM}'"
+            f" stroke-width='1.9' fill='none' stroke-linecap='round'/>"
+            f"<ellipse cx='76' cy='69' rx='3.6' ry='2' fill='#a0d4a6'"
+            f" transform='rotate(-38 76 69)'/>"
+            f"<ellipse cx='86.6' cy='71' rx='3.6' ry='2' fill='#a0d4a6'"
+            f" transform='rotate(36 86.6 71)'/>")
+        if stage >= 6:   # bloomed
+            heads = (_flower(70, 51.5, "#b79ce0") + _flower(81, 47.5, "#f37b75", 6.2)
+                     + _flower(92.6, 52.5, "#f8c614"))
+            sway = ("<animateTransform attributeName='transform' type='rotate'"
+                    " values='0 81 79;1.8 81 79;-1.8 81 79;0 81 79' dur='5.5s'"
+                    " repeatCount='indefinite'/>")
+        else:            # still closed
+            heads = _bud(70, 55.6) + _bud(81, 51.6) + _bud(92.6, 56.4)
+            sway = ""
+        s.append(f"<g>{sway}{stems}{heads}</g>")
+
+    if stage == 5:  # ---- someone waters them ----------------------------- #
+        s.append(_watering_can("", pouring=True))
+        s.append(_droplets())
+    elif stage >= 6:  # the can is set down on the rug afterwards
+        s.append(_watering_can("transform='translate(33,113) scale(.74)"
+                               " translate(-119,-42)'", pouring=False))
+
+    if fallen:  # ---- the vase falls: tipped pot, puddle, scattered blooms - #
+        s.append(
+            # water pooling on the tabletop, then dripping over the near edge
+            f"<ellipse cx='62' cy='98.6' rx='13' ry='2.6' fill='#6cc2ea' opacity='.5'/>"
+            f"<path d='M54 99.6 C50.4 105 51.8 111.4 54.6 115.6' stroke='#6cc2ea'"
+            f" stroke-width='1.8' fill='none' opacity='.55' stroke-linecap='round'/>"
+            f"<ellipse cx='56' cy='120.5' rx='9' ry='3' fill='#6cc2ea' opacity='.4'/>"
+            # the pot on its side, mouth toward the table's left edge
+            f"<g transform='translate(-9,2) rotate(-104 81 87.4)'>"
+            f"<path d='M77.4 78 C76 85 71.4 86 71.4 90.6 C71.4 95 76 96.8 81 96.8"
+            f" C86 96.8 90.6 95 90.6 90.6 C90.6 86 86 85 84.6 78 Z' fill='#6cc2ea'/>"
+            f"<ellipse cx='81' cy='78' rx='3.7' ry='1.5' fill='#4fb0dd'/></g>"
+            # blooms thrown clear — one still on the table, two on the rug
+            + f"<path d='M100 94.4 C104 94.8 107 95.6 109.5 96.6' stroke='{_STEM}'"
+              f" stroke-width='1.7' fill='none' stroke-linecap='round'/>"
+            + _flower(97, 93, "#b79ce0", 5.2)
+            + f"<path d='M66 122.4 C62 123 58.6 124 55.6 125.4' stroke='{_STEM}'"
+              f" stroke-width='1.7' fill='none' stroke-linecap='round'/>"
+            + _flower(70, 121, "#f37b75", 5.4)
+            + f"<path d='M105 123.6 C109 124 112.4 125 115 126.2' stroke='{_STEM}'"
+              f" stroke-width='1.7' fill='none' stroke-linecap='round'/>"
+            + _flower(101, 122.4, "#f8c614", 5.2))
+
+    if stage >= 7:  # ---- the cat ------------------------------------------ #
+        if stage == 10:                       # bolts away
+            s.append(
+                "<g>"
+                "<animateTransform attributeName='transform' type='translate'"
+                " values='0,0;0,2;16,-22;36,-8;62,-24;96,-6' keyTimes='0;.14;.34;.52;.74;1'"
+                " dur='2.3s' repeatCount='indefinite'/>"
+                "<animate attributeName='opacity' values='1;1;1;0' keyTimes='0;.5;.78;1'"
+                " dur='2.3s' repeatCount='indefinite'/>"
+                "<g><animateTransform attributeName='transform' type='rotate'"
+                " values='0 136 114;-13 136 114;7 136 114;-13 136 114;4 136 114'"
+                " keyTimes='0;.3;.52;.74;1' dur='2.3s' repeatCount='indefinite'/>"
+                + _cat(anxious=True) + "</g></g>")
+        else:
+            s.append(_cat(anxious=(stage == 9), playing=(stage == 8)))
+
+    return ("<svg viewBox='0 0 170 150' xmlns='http://www.w3.org/2000/svg'"
+            " role='img' aria-label='a little scene that grows as you label'>"
+            + "".join(s) + "</svg>")
+
+
 def inject_theme(mode: str) -> None:
     p = PALETTES[mode]
     st.markdown(
@@ -210,6 +484,43 @@ def inject_theme(mode: str) -> None:
             color:#fff !important; border:none !important;
             box-shadow:0 3px 12px rgba(243,123,117,.4); }}
           .stButton button[kind="primary"]:hover {{ color:#fff !important; }}
+
+          /* ---- the growing scene, parked in the bottom-right corner -------- */
+          /* pointer-events:none is load-bearing: it must never eat a tap. */
+          .scene-corner {{ position:fixed; bottom:14px; right:14px; width:170px;
+            z-index:5; pointer-events:none; }}
+          .scene-corner svg {{ display:block; width:100%; height:auto; }}
+
+          /* ---- phones ------------------------------------------------------ */
+          @media (max-width: 640px) {{
+            html {{ font-size: 15px; }}
+            .block-container {{ padding-top:1.1rem !important;
+              padding-left:.85rem !important; padding-right:.85rem !important;
+              padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)) !important; }}
+            /* passage + answers first, label guide underneath */
+            .st-key-mainsplit [data-testid="stHorizontalBlock"] {{ flex-wrap:wrap; }}
+            .st-key-mainsplit [data-testid="stHorizontalBlock"]
+              > [data-testid="stColumn"]:nth-of-type(1) {{ order:2; }}
+            .st-key-mainsplit [data-testid="stHorizontalBlock"]
+              > [data-testid="stColumn"]:nth-of-type(2) {{ order:1; }}
+            .st-key-mainsplit [data-testid="stColumn"] {{ width:100% !important;
+              flex:1 1 100% !important; min-width:100% !important; }}
+            .reason-card {{ max-width:100% !important; padding:1.05rem 1.1rem;
+              font-size:1rem; border-radius:14px; }}
+            h1 {{ font-size:1.6rem !important; }}
+            h4 {{ font-size:1.05rem !important; }}
+            .guide-title {{ font-size:1.3rem; }}
+            div[role="radiogroup"] label {{ font-size:1rem; margin-bottom:.7rem; }}
+            .stButton button, .stDownloadButton button {{ min-height:44px;
+              width:100% !important; }}
+            [data-testid="stHorizontalBlock"]:has(.stButton) {{ row-gap:.45rem; }}
+            /* keep the scene small + out of the way of "Save & next" */
+            .scene-corner {{ width:100px; opacity:.8; right:6px;
+              bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }}
+            /* nothing may push the page sideways at 375px */
+            .stApp, .block-container {{ overflow-x:hidden; }}
+            [data-testid="stMarkdownContainer"] {{ overflow-wrap:anywhere; }}
+          }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -518,7 +829,11 @@ row = items.iloc[idx]
 item_id = row["id"]
 current = labels.get(item_id)
 
-guide_col, task_col = st.columns([1, 1.35], gap="large")
+# keyed container -> Streamlit stamps a `.st-key-mainsplit` class on the wrapper,
+# which is what the mobile CSS uses to flip the column order (and only here — the
+# nav row is a stHorizontalBlock too, and must keep its own order).
+with st.container(key="mainsplit"):
+    guide_col, task_col = st.columns([1, 1.35], gap="large")
 
 # ---- left: always-visible rubric; tap a label for multiple examples --------- #
 def rich(s: str) -> str:
@@ -602,6 +917,23 @@ with nav[3]:
         save_one(name, item_id, choice)
         st.session_state.idx = min(idx + 1, N - 1)
         st.rerun()
+
+# --------------------------------------------------------------------------- #
+# The growing scene (labelling screen only) + a toast when a new bit appears
+# --------------------------------------------------------------------------- #
+_scene_done = len(labels)
+_stage = scene_stage(_scene_done)
+if "_scene_stage" not in st.session_state:
+    st.session_state["_scene_stage"] = _stage          # silent on first render
+elif _stage != st.session_state["_scene_stage"]:
+    st.session_state["_scene_stage"] = _stage
+    if _stage in SCENE_TOASTS:
+        st.toast(SCENE_TOASTS[_stage])
+st.markdown(
+    f"<div class='scene-corner'>"
+    f"{scene_svg(_scene_done, PALETTES[st.session_state.theme])}</div>",
+    unsafe_allow_html=True,
+)
 
 # completion banner
 if len(labels) >= N:
