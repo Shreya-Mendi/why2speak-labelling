@@ -178,11 +178,16 @@ def inject_theme(mode: str) -> None:
           details.lbl .muted {{ line-height:1.55; }}
           .reason-card {{
             background: {p['card']}; border: 1px solid {p['card_border']};
-            border-radius: 18px; padding: 1.4rem 1.6rem; line-height: 1.8;
-            font-size: 1.06rem; color: {p['text']};
-            max-height: 46vh; overflow-y: auto;
+            border-radius: 18px; padding: 1.4rem 1.6rem; line-height: 1.75;
+            font-size: 1.05rem; color: {p['text']};
+            max-width: 72ch;
             box-shadow: 0 4px 18px rgba(60,50,30,.08);
           }}
+          .reason-card p {{ margin: 0 0 .85rem 0; }}
+          .reason-card p:last-child {{ margin-bottom: 0; }}
+          .lead-tip {{ background:{p['pill_bg']}; color:{p['pill_text']};
+            border-radius:10px; padding:.5rem .8rem; font-size:.88rem;
+            margin:.4rem 0 .2rem 0; }}
           .pill {{ display:inline-block; padding:.18rem .8rem; border-radius:999px;
             background:{p['pill_bg']}; color:{p['pill_text']}; font-size:.8rem;
             font-weight:600; margin-right:.45rem; }}
@@ -233,7 +238,101 @@ def out_path(name: str) -> Path:
     return OUT_DIR / f"labels_{slug(name)}.csv"
 
 
-# ---- optional central store: Google Sheet (append-only log, last-wins) ------ #
+# ---- central store #1: Postgres (Vercel/Neon) — survives redeploys --------- #
+def _db_url() -> str | None:
+    try:
+        if "db" in st.secrets and st.secrets["db"].get("url"):
+            return st.secrets["db"]["url"]
+        if "DATABASE_URL" in st.secrets:
+            return st.secrets["DATABASE_URL"]
+    except Exception:
+        pass
+    return None
+
+
+def _db_conn():
+    """Fresh short-lived connection per operation (plays nice with serverless
+    Postgres that suspends between uses). Returns None if unconfigured/down."""
+    url = _db_url()
+    if not url:
+        return None
+    try:
+        import psycopg2
+        conn = psycopg2.connect(url, connect_timeout=8)
+        conn.autocommit = True
+        return conn
+    except Exception as e:
+        st.session_state.setdefault("_db_error", str(e))
+        return None
+
+
+@st.cache_resource
+def _db_ready() -> bool:
+    """Create the labels table once per app process; cache the outcome."""
+    conn = _db_conn()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS labels (
+                       labeller  TEXT NOT NULL,
+                       item_id   TEXT NOT NULL,
+                       label     TEXT NOT NULL,
+                       saved_utc TIMESTAMPTZ NOT NULL DEFAULT now(),
+                       PRIMARY KEY (labeller, item_id)
+                   )"""
+            )
+        return True
+    except Exception as e:
+        st.session_state.setdefault("_db_error", str(e))
+        return False
+    finally:
+        conn.close()
+
+
+def _db_load(name: str) -> dict[str, str] | None:
+    if not _db_ready():
+        return None
+    conn = _db_conn()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT item_id, label FROM labels WHERE labeller = %s",
+                        (slug(name),))
+            return {str(i): str(l) for i, l in cur.fetchall()}
+    except Exception as e:
+        st.session_state.setdefault("_db_error", str(e))
+        return None
+    finally:
+        conn.close()
+
+
+def _db_save(name: str, item_id: str, label: str) -> bool:
+    if not _db_ready():
+        return False
+    conn = _db_conn()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO labels (labeller, item_id, label, saved_utc)
+                   VALUES (%s, %s, %s, now())
+                   ON CONFLICT (labeller, item_id)
+                   DO UPDATE SET label = EXCLUDED.label, saved_utc = now()""",
+                (slug(name), str(item_id), label),
+            )
+        return True
+    except Exception as e:
+        st.session_state.setdefault("_db_error", str(e))
+        return False
+    finally:
+        conn.close()
+
+
+# ---- central store #2 (legacy): Google Sheet (append-only log, last-wins) --- #
 @st.cache_resource
 def _worksheet():
     """Return a gspread worksheet if [gsheets] secrets are set, else None.
@@ -261,14 +360,25 @@ def _worksheet():
         return None
 
 
+def storage_mode() -> str:
+    """'db' | 'gsheets' | 'local' — which store is live right now."""
+    if _db_ready():
+        return "db"
+    if _worksheet() is not None:
+        return "gsheets"
+    return "local"
+
+
 def load_progress(name: str) -> dict[str, str]:
+    got = _db_load(name)
+    if got is not None:
+        return got
     ws = _worksheet()
     if ws is not None:
         recs = ws.get_all_records()  # list[dict]
         # last-wins: later rows override earlier for the same (labeller, id)
-        out = {str(r["id"]): str(r["your_label"]) for r in recs
-               if str(r.get("labeller", "")).strip().lower() == name.strip().lower()}
-        return out
+        return {str(r["id"]): str(r["your_label"]) for r in recs
+                if str(r.get("labeller", "")).strip().lower() == name.strip().lower()}
     p = out_path(name)
     if not p.exists():
         return {}
@@ -279,16 +389,18 @@ def load_progress(name: str) -> dict[str, str]:
 
 
 def save_one(name: str, item_id: str, label: str) -> None:
-    """Autosave one label. Central sheet if configured; always local CSV too."""
+    """Autosave one label. Postgres first, sheet as legacy fallback; a local
+    CSV is always written too (backup + the sidebar download button)."""
     st.session_state.labels[item_id] = label
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    ws = _worksheet()
-    if ws is not None:
-        try:
-            ws.append_row([name, str(item_id), label, ts])  # append-only log
-        except Exception as e:
-            st.warning(f"Central save failed (kept a local backup): {e}")
-    # local backup / primary — full map, always consistent
+    if not _db_save(name, item_id, label):
+        ws = _worksheet()
+        if ws is not None:
+            try:
+                ws.append_row([name, str(item_id), label, ts])  # append-only log
+            except Exception as e:
+                st.warning(f"Central save failed (kept a local backup): {e}")
+    # local backup — full map, always consistent
     rows = [{"id": i, "your_label": l, "labeller": name, "saved_utc": ts}
             for i, l in st.session_state.labels.items()]
     pd.DataFrame(rows).to_csv(out_path(name), index=False)
@@ -349,6 +461,14 @@ with st.sidebar:
 
     done = len(labels)
     st.progress(done / N, text=f"{done} / {N} done")
+    _mode = storage_mode()
+    if _mode == "db":
+        st.caption("☁️ Progress saves to the shared database — safe to close anytime.")
+    elif _mode == "gsheets":
+        st.caption("📄 Progress saves to the shared sheet — safe to close anytime.")
+    else:
+        st.caption("⚠️ Saving locally only — please Download your answers when you "
+                   "stop, or progress may be lost.")
 
     st.markdown("### How to choose")
     st.markdown(
@@ -392,6 +512,14 @@ def rich(s: str) -> str:
     return s
 
 
+def paragraphize(text: str, per_para: int = 3) -> str:
+    """Break a wall-of-text reasoning trace into small paragraphs for readability.
+    Pure formatting: sentence order and content untouched (no bias to labels)."""
+    sents = re.split(r"(?<=[.!?])\s+", text.strip())
+    paras = [" ".join(sents[i:i + per_para]) for i in range(0, len(sents), per_para)]
+    return "".join(f"<p>{p}</p>" for p in paras if p)
+
+
 with guide_col:
     st.markdown("<div class='guide-title'>📖 Label guide — tap one for examples</div>",
                 unsafe_allow_html=True)
@@ -424,7 +552,13 @@ with task_col:
         unsafe_allow_html=True,
     )
     st.markdown("#### 🍃 The reasoning")
-    st.markdown(f"<div class='reason-card'>{row['reasoning_text']}</div>",
+    st.markdown(
+        "<div class='lead-tip'>💡 Long one? You usually don't need every word — "
+        "the label is what the reasoning <b>leads with</b>, and that's typically "
+        "clear within the first few sentences.</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(f"<div class='reason-card'>{paragraphize(row['reasoning_text'])}</div>",
                 unsafe_allow_html=True)
     st.caption("Some passages cut off mid-thought — that's expected; just judge what's shown.")
 
