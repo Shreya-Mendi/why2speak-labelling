@@ -252,23 +252,35 @@ def _db_url() -> str | None:
 
 def _db_conn():
     """Fresh short-lived connection per operation (plays nice with serverless
-    Postgres that suspends between uses). Returns None if unconfigured/down."""
+    Postgres that suspends between uses). Returns None if unconfigured/down.
+
+    Uses psycopg 3 (`psycopg[binary]`) — psycopg2-binary has no wheels for
+    Python 3.14, which is what Streamlit Cloud runs. Retries once because a
+    suspended Neon endpoint can take a few seconds to wake on first contact.
+    """
     url = _db_url()
     if not url:
         return None
     try:
-        import psycopg2
-        conn = psycopg2.connect(url, connect_timeout=8)
-        conn.autocommit = True
-        return conn
+        import psycopg
     except Exception as e:
-        st.session_state.setdefault("_db_error", str(e))
+        st.session_state["_db_error"] = f"driver import failed: {e}"
         return None
+    last = None
+    for timeout in (10, 20):  # cold-start friendly
+        try:
+            return psycopg.connect(url, connect_timeout=timeout, autocommit=True)
+        except Exception as e:
+            last = e
+    st.session_state["_db_error"] = str(last)
+    return None
 
 
-@st.cache_resource
 def _db_ready() -> bool:
-    """Create the labels table once per app process; cache the outcome."""
+    """Ensure the labels table exists. Cached only on SUCCESS, so a cold-start
+    failure never permanently pins the app into local-only mode."""
+    if st.session_state.get("_db_ok"):
+        return True
     conn = _db_conn()
     if conn is None:
         return False
@@ -283,9 +295,10 @@ def _db_ready() -> bool:
                        PRIMARY KEY (labeller, item_id)
                    )"""
             )
+        st.session_state["_db_ok"] = True
         return True
     except Exception as e:
-        st.session_state.setdefault("_db_error", str(e))
+        st.session_state["_db_error"] = str(e)
         return False
     finally:
         conn.close()
@@ -469,6 +482,9 @@ with st.sidebar:
     else:
         st.caption("⚠️ Saving locally only — please Download your answers when you "
                    "stop, or progress may be lost.")
+        if st.session_state.get("_db_error"):
+            with st.expander("why?"):
+                st.code(st.session_state["_db_error"][:400])
 
     st.markdown("### How to choose")
     st.markdown(

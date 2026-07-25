@@ -39,12 +39,12 @@ def main() -> None:
     if not url:
         sys.exit("no db url: pass --url or put [db] url=... in .streamlit/secrets.toml")
 
-    import psycopg2
-    conn = psycopg2.connect(url, connect_timeout=10)
-    df = pd.read_sql(
-        "SELECT labeller, item_id AS id, label AS your_label, saved_utc "
-        "FROM labels ORDER BY labeller, item_id", conn)
-    conn.close()
+    import psycopg
+    with psycopg.connect(url, connect_timeout=20) as conn, conn.cursor() as cur:
+        cur.execute("SELECT labeller, item_id, label, saved_utc "
+                    "FROM labels ORDER BY labeller, item_id")
+        rows = cur.fetchall()
+    df = pd.DataFrame(rows, columns=["labeller", "id", "your_label", "saved_utc"])
 
     if df.empty:
         print("db reachable — 0 labels saved yet")

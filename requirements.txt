@@ -5,4 +5,4 @@ scikit-learn>=1.3
 gspread>=6.0
 google-auth>=2.0
 # --- central Postgres save (Vercel/Neon) ---
-psycopg2-binary>=2.9
+psycopg[binary]>=3.1
