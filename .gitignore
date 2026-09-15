@@ -1,0 +1,7 @@
+.streamlit/secrets.toml
+local_labels.jsonl
+local_slots.json
+.testmode/
+__pycache__/
+*.pyc
+.venv/
