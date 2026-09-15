@@ -339,6 +339,17 @@ md(CSS)
 items, design, slots, PLAN_ID = load_data()
 SLOT_IDS = sorted(slots)
 store = get_store()
+# Fail closed. With no database configured, answers would land on Streamlit
+# Cloud's own disk, which is wiped on every restart. Only the local test-mode
+# launcher (W2S_FORCE_LOCAL) may run without one.
+if store.kind == "local" and not os.environ.get("W2S_FORCE_LOCAL"):
+    md('<div class="stack"><div class="card center">'
+       '<div class="display" style="font-size:2rem">Not <span class="hl">connected.</span></div>'
+       "<p>This app has no database set up yet, so answers would be lost. "
+       "Please don't start. Message Shreya instead.</p>"
+       '<p style="color:var(--muted)">Shreya: paste the secrets under Settings, Secrets.</p>'
+       "</div></div>")
+    st.stop()
 try:
     schema_ready(store.kind, db_url() or str(LOCAL_DIR))
 except Exception as e:  # noqa: BLE001
@@ -357,7 +368,8 @@ if "admin" in qp:
         db_down(e)
     per = design["trials_per_slot"]
     real = [r for r in rows if r["slot"] != TEST_SLOT]
-    md(f'<div class="display">Progress</div><div class="eyebrow">{len(real)} people signed in · '
+    where = "saving to the shared database" if store.kind == "db" else "TEST MODE, local files only"
+    md(f'<div class="display">Progress</div><div class="eyebrow">{where} · {len(real)} people signed in · '
        f'{sum(1 for r in real if r["done"] >= per)} finished · {sum(r["done"] for r in real)} answers · '
        f'{len({r["slot"] for r in real} & set(SLOT_IDS))} of {len(SLOT_IDS)} slots claimed · '
        f'test names excluded · plan {PLAN_ID}</div>')
