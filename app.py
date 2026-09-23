@@ -12,8 +12,8 @@ Identity is a typed nickname. A new nickname claims the next free slot in audit_
 (people past the last slot get a copy of the least-finished one) and an opaque
 resume token that goes in the URL, so a reload or bookmark picks up where they
 left off. The nickname itself never goes in the URL. A nickname that already has a
-place gets an "is that you?" check, so a returning labeller can resume by typing it
-while a new one is told to pick another, instead of the two silently merging.
+place can only be resumed with the 4-character code issued at sign-in (derived from the
+token), so a new labeller can never take a nickname someone else is already using.
 Names starting "test" get a separate test slot (slot_01's plan) that
 pull_labels.py leaves out.
 
@@ -29,6 +29,7 @@ Deploy: RUNBOOK section 7.
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
@@ -97,6 +98,12 @@ def clean_name(raw: str) -> str:
 
 def is_test(name: str) -> bool:
     return name.startswith("test")
+
+
+def code_of(token: str) -> str:
+    """The 4-character code a labeller is given at sign-in. Derived from their resume
+    token, so nothing new is stored, and it never reveals the token itself."""
+    return hashlib.sha256(token.encode()).hexdigest()[:4].upper()
 
 
 # --------------------------------------------------------------------------- #
@@ -391,33 +398,58 @@ if "labeller" not in st.session_state:
     n_trials, n_parts = first_plan["n_trials"], len(first_plan["sittings"])
     dur = duration(design)
 
-    # A typed name that already has a place: never resume it silently, because
-    # two people with the same name would become one rater.
+    # Just claimed: hand them the code before anything else.
+    fresh = st.session_state.get("new_code")
+    if fresh:
+        who, code = fresh
+        chrome(count=n_trials)
+        md('<div class="stack"><div class="card center">'
+           '<div class="display" style="font-size:clamp(2rem,6.5vw,2.8rem)">Your code is '
+           f'<span class="hl">{code}</span></div>'
+           f"<p>Write it down. If you lose this tab, your nickname <b>{safe(who)}</b> plus that code "
+           "gets you back in. Bookmarking this page works too.</p></div></div>")
+        with st.container(key="resume"):
+            if st.button("Got it, start", key="start_fresh", width="stretch"):
+                st.session_state.labeller = who
+                del st.session_state["new_code"]
+                st.rerun()
+        st.stop()
+
+    # Nickname already has a place: only its owner gets in, and only with the code.
     pending = st.session_state.get("pending")
     if pending:
         try:
+            mine = store.slot_of(pending)
             n_done = len(store.done(pending))
         except Exception as e:  # noqa: BLE001
             db_down(e)
         chrome(count=n_trials)
         md('<div class="stack"><div class="card center">'
-           '<div class="display" style="font-size:clamp(2rem,6.5vw,2.8rem)">Is that <span class="hl">you?</span></div>'
-           f'<p>Someone already started as <b>{safe(pending)}</b> and has done {n_done} of {n_trials}.</p>'
-           '<p style="color:var(--muted)">If that was you on an earlier visit, carry on. If not, go back '
-           "and pick a different nickname, so you get your own place.</p>"
-           "</div></div>")
-        with st.container(key="choices"):
-            yes_col, no_col = st.columns(2, gap="small")
-            with yes_col, st.container(key="resume"):
-                if st.button("Yes, that's me", key="yes_me", width="stretch"):
-                    st.session_state.labeller = pending
-                    del st.session_state["pending"]
-                    st.rerun()
-            with no_col:
-                if st.button("No, pick another", key="not_me", width="stretch"):
-                    st.session_state.name_taken = pending
-                    del st.session_state["pending"]
-                    st.rerun()
+           '<div class="display" style="font-size:clamp(2rem,6.5vw,2.8rem)">That one is '
+           '<span class="hl">taken.</span></div>'
+           f"<p>Someone started as <b>{safe(pending)}</b> and has done {n_done} of {n_trials}. "
+           "If that is you, type the 4-character code you were given.</p></div></div>")
+        if st.session_state.get("code_error"):
+            md('<div class="note bad">That code does not match. Check it, or pick a different '
+               "nickname.</div>")
+        with st.form("code", border=False):
+            typed = st.text_input("Your code", max_chars=8, placeholder="4 characters")
+            with st.container(key="resume"):
+                go_code = st.form_submit_button("Continue", width="stretch")
+        if go_code:
+            if mine and typed.strip().upper() == code_of(mine[1]):
+                st.session_state.labeller = pending
+                for k in ("pending", "code_error"):
+                    st.session_state.pop(k, None)
+            else:
+                st.session_state.code_error = True
+            st.rerun()
+        with st.container(key="undo"):
+            if st.button("Use a different nickname", key="not_me"):
+                st.session_state.name_taken = pending
+                for k in ("pending", "code_error"):
+                    st.session_state.pop(k, None)
+                st.rerun()
         st.stop()
 
     chrome(count=n_trials)
@@ -436,8 +468,8 @@ if "labeller" not in st.session_state:
        "<li>You won't see what it would have said. "
        '<span class="hl">Judge the moment, not the wording.</span></li>'
        "<li>Dark bubbles are things the assistant already said earlier in that chat.</li>"
-       f"<li>{n_trials} chats in {n_parts} parts, {dur} in all. Every click saves. Come back any time "
-       "with the same nickname, or bookmark this page.</li>"
+       f"<li>{n_trials} chats in {n_parts} parts, {dur} in all. Every click saves. To come back, "
+       "bookmark this page, or use your nickname and the code you get when you start.</li>"
        "<li>Please answer on your own, and don't compare notes on specific chats.</li>"
        "</ul>"
        '<span class="tag">one click each</span><span class="tag">saves as you go</span>'
@@ -453,17 +485,17 @@ if "labeller" not in st.session_state:
     if go:
         name = clean_name(raw)
         if len(name) < 2:
-            md('<div class="note bad">Type your name first, so your answers can be saved.</div>')
+            md('<div class="note bad">Type your nickname first, so your answers can be saved.</div>')
             st.stop()
         try:
-            _, _, created = store.claim(name, [TEST_SLOT] if is_test(name) else SLOT_IDS)
+            _, token, created = store.claim(name, [TEST_SLOT] if is_test(name) else SLOT_IDS)
         except Exception as e:  # noqa: BLE001
             db_down(e)
         st.session_state.pop("name_taken", None)
         if created:
-            st.session_state.labeller = name
+            st.session_state.new_code = (name, code_of(token))
         else:
-            st.session_state.pending = name
+            st.session_state.pending = name          # owner proves it with the code
         st.rerun()
     st.stop()
 
@@ -522,7 +554,8 @@ if redo is None and trial_idx in bounds and not st.session_state.get(f"past_{tri
        f'<div class="display" style="font-size:clamp(2.2rem,7vw,3.2rem)">Part {part - 1} <span class="hl">done.</span></div>'
        '<div class="script">stretch, grab a chai, your place is saved</div>'
        f'<p style="color:var(--muted);margin-top:.8rem">{len(done)} of {n} finished. '
-       "Keep going now, or close the tab and come back later with this link or your nickname.</p>"
+       "Keep going now, or come back later with this link, or your nickname and code "
+       f"<b>{code_of(token)}</b>.</p>"
        "</div></div>")
     with st.container(key="resume"):
         if st.button("Keep going", width="stretch"):
