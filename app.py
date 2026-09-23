@@ -8,11 +8,12 @@ that made the round-1 preference data uninterpretable.
 One click per trial. No confidence rating, no free text: item difficulty is
 recovered behaviourally from disagreement, the repeated trials and time-on-item.
 
-Identity is a typed nickname, and nicknames are unique: one that already has a
-place is refused, so two people can never become one rater. A new nickname claims
-the next free slot in audit_plans.json (people past the last slot get a copy of the
-least-finished one) and an opaque resume token that goes in the URL, which is the
-only way back. The nickname itself never goes in the URL.
+Identity is a typed nickname. A new nickname claims the next free slot in audit_plans.json
+(people past the last slot get a copy of the least-finished one) and an opaque
+resume token that goes in the URL, so a reload or bookmark picks up where they
+left off. The nickname itself never goes in the URL. A nickname that already has a
+place gets an "is that you?" check, so a returning labeller can resume by typing it
+while a new one is told to pick another, instead of the two silently merging.
 Names starting "test" get a separate test slot (slot_01's plan) that
 pull_labels.py leaves out.
 
@@ -390,6 +391,35 @@ if "labeller" not in st.session_state:
     n_trials, n_parts = first_plan["n_trials"], len(first_plan["sittings"])
     dur = duration(design)
 
+    # A typed name that already has a place: never resume it silently, because
+    # two people with the same name would become one rater.
+    pending = st.session_state.get("pending")
+    if pending:
+        try:
+            n_done = len(store.done(pending))
+        except Exception as e:  # noqa: BLE001
+            db_down(e)
+        chrome(count=n_trials)
+        md('<div class="stack"><div class="card center">'
+           '<div class="display" style="font-size:clamp(2rem,6.5vw,2.8rem)">Is that <span class="hl">you?</span></div>'
+           f'<p>Someone already started as <b>{safe(pending)}</b> and has done {n_done} of {n_trials}.</p>'
+           '<p style="color:var(--muted)">If that was you on an earlier visit, carry on. If not, go back '
+           "and pick a different nickname, so you get your own place.</p>"
+           "</div></div>")
+        with st.container(key="choices"):
+            yes_col, no_col = st.columns(2, gap="small")
+            with yes_col, st.container(key="resume"):
+                if st.button("Yes, that's me", key="yes_me", width="stretch"):
+                    st.session_state.labeller = pending
+                    del st.session_state["pending"]
+                    st.rerun()
+            with no_col:
+                if st.button("No, pick another", key="not_me", width="stretch"):
+                    st.session_state.name_taken = pending
+                    del st.session_state["pending"]
+                    st.rerun()
+        st.stop()
+
     chrome(count=n_trials)
     md('<div class="stickers">'
        '<span class="sticker" style="--r:-8deg">💬</span>'
@@ -406,16 +436,16 @@ if "labeller" not in st.session_state:
        "<li>You won't see what it would have said. "
        '<span class="hl">Judge the moment, not the wording.</span></li>'
        "<li>Dark bubbles are things the assistant already said earlier in that chat.</li>"
-       f"<li>{n_trials} chats in {n_parts} parts, {dur} in all. Every click saves. Bookmark this page: "
-       "the link in your address bar is how you come back.</li>"
+       f"<li>{n_trials} chats in {n_parts} parts, {dur} in all. Every click saves. Come back any time "
+       "with the same nickname, or bookmark this page.</li>"
        "<li>Please answer on your own, and don't compare notes on specific chats.</li>"
        "</ul>"
        '<span class="tag">one click each</span><span class="tag">saves as you go</span>'
-       '<span class="tag">coming back? your link</span>'
+       '<span class="tag">coming back? same nickname</span>'
        "</div></div>")
     if st.session_state.get("name_taken"):
-        md(f'<div class="note"><b>{safe(st.session_state.name_taken)}</b> is taken, so pick a different '
-           "nickname. If that one is yours and you lost your link, message Shreya and she will send it.</div>")
+        md(f'<div class="note"><b>{safe(st.session_state.name_taken)}</b> is taken. Pick a different '
+           "nickname, so you get your own place.</div>")
     with st.form("who", border=False):
         raw = st.text_input("Your nickname", max_chars=40, placeholder="a nickname you will remember")
         with st.container(key="go"):
@@ -433,7 +463,7 @@ if "labeller" not in st.session_state:
         if created:
             st.session_state.labeller = name
         else:
-            st.session_state.name_taken = name     # nicknames are unique: no resume by name
+            st.session_state.pending = name
         st.rerun()
     st.stop()
 
@@ -492,7 +522,7 @@ if redo is None and trial_idx in bounds and not st.session_state.get(f"past_{tri
        f'<div class="display" style="font-size:clamp(2.2rem,7vw,3.2rem)">Part {part - 1} <span class="hl">done.</span></div>'
        '<div class="script">stretch, grab a chai, your place is saved</div>'
        f'<p style="color:var(--muted);margin-top:.8rem">{len(done)} of {n} finished. '
-       "Keep going now, or close the tab and come back later with this same link.</p>"
+       "Keep going now, or close the tab and come back later with this link or your nickname.</p>"
        "</div></div>")
     with st.container(key="resume"):
         if st.button("Keep going", width="stretch"):
